@@ -1,0 +1,17 @@
+{
+  "name": "egent-verify-bot",
+  "version": "1.0.0",
+  "description": "EGENT Packs task verification bot - checks X + Telegram tasks automatically",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0",
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
