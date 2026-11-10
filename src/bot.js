@@ -73,10 +73,14 @@ async function checkCreatePost(postLink, xUsername) {
     if (!res.ok) return { status: 'error', detail: `oEmbed ${res.status} (post may be private/deleted)` };
     const j = await res.json();
     const html = (j.html || '').replace(/<[^>]+>/g, ' ');
-    const authorOk = !xUsername || (j.author_name || '').toLowerCase().replace(/^@/, '') === xUsername.toLowerCase().replace(/^@/, '');
+    // oEmbed author_name is the DISPLAY name (e.g. "Aleca Sky"), not the
+    // username — compare against author_url instead (https://x.com/<username>).
+    const urlUser = (j.author_url || '').match(/x\.com\/([^/?#]+)/)?.[1]
+      || (j.author_url || '').match(/twitter\.com\/([^/?#]+)/)?.[1] || '';
+    const authorOk = !xUsername || urlUser.toLowerCase() === xUsername.toLowerCase().replace(/^@/, '');
     const textOk = html.includes("Hello I'm $EGENT") || html.includes('Hello I&#39;m $EGENT') || html.includes('Free Mint is live');
-    if (authorOk && textOk) return { status: 'pass', detail: `post by @${j.author_name} contains the required text` };
-    if (!authorOk) return { status: 'fail', detail: 'post author does not match your X username' };
+    if (authorOk && textOk) return { status: 'pass', detail: `post by @${urlUser || j.author_name} contains the required text` };
+    if (!authorOk) return { status: 'fail', detail: `post author (@${urlUser || '?'}) does not match your X username (@${xUsername})` };
     return { status: 'fail', detail: 'post does not contain the required text' };
   } catch (e) {
     return { status: 'error', detail: String(e.message || e) };
