@@ -235,6 +235,16 @@ bot.on('message:text', async (ctx) => {
 // --- HTTP API for the mint website ---
 const app = express();
 app.use(express.json());
+// CORS: the mint website (Netlify) calls this API from the browser, so the
+// server must allow cross-origin requests or the browser blocks the fetch
+// (the Task 4 "Check" button fails with a connection error).
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.get('/health', (req, res) => res.json({ ok: true, bot: 'EgentVerifybot', mode: 'click-complete', ownerConfigured: !!OWNER_TELEGRAM_ID }));
 // Website polling: returns the stored verification status for a wallet so the
 // mint site can flip tasks 3+4 (and the overall gate) to Verified as soon as
