@@ -22,6 +22,12 @@
  *  GET  /health
  *  POST /verify  { wallet, xUsername, tgUserId?, postLink? }
  *    -> { follow, likeRepost, createPost, joinTelegram, allPassed }
+ *  GET  /check-telegram?username=@foo
+ *    -> { member: true } if the username is a member of @ET_EGENT,
+ *       { member: false, reason: 'not_linked' } if the user never messaged
+ *       the bot (username cannot be resolved to a numeric id yet),
+ *       { member: false, reason: 'not_member' } if they have not joined.
+ *       Used by the mint website's Task 4 form (auto-check, no /verify).
  *
  * Env (.env, chmod 600, never commit):
  *  BOT_TOKEN          Telegram bot token (@EgentVerifybot)
@@ -60,6 +66,26 @@ function loadParts() {
 function saveParts(p) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(PART_FILE, JSON.stringify(p, null, 2));
+}
+
+// --- Telegram username -> user id store ---
+// Telegram's Bot API getChatMember needs a NUMERIC user id, not a username.
+// The bot can only resolve a username to an id if that user has messaged the
+// bot at least once (so we learn their id + username). Record every sender.
+const TG_USERS_FILE = path.join(DATA_DIR, 'tg-users.json');
+function loadTgUsers() {
+  try { return JSON.parse(fs.readFileSync(TG_USERS_FILE, 'utf8')); } catch { return {}; }
+}
+function saveTgUsers(u) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(TG_USERS_FILE, JSON.stringify(u, null, 2));
+}
+function recordTgUser(from) {
+  if (!from || !from.username || !from.id) return;
+  const users = loadTgUsers();
+  const key = String(from.username).toLowerCase().replace(/^@/, '');
+  users[key] = { id: from.id, username: from.username, firstSeen: users[key]?.firstSeen || new Date().toISOString(), lastSeen: new Date().toISOString() };
+  saveTgUsers(users);
 }
 
 // Task 3: does the submitted post link exist and contain the required text?
@@ -127,6 +153,14 @@ function isOwner(ctx) {
 
 // --- Telegram bot ---
 const bot = new Bot(BOT_TOKEN, { client: { fetch: createProxyFetch() } });
+
+// Record every sender's username -> id so the website's Task 4 check
+// (GET /check-telegram?username=...) can resolve a username to the numeric
+// id that getChatMember requires.
+bot.use(async (ctx, next) => {
+  try { if (ctx.from) recordTgUser(ctx.from); } catch {}
+  await next();
+});
 
 bot.command('start', async (ctx) => {
   await ctx.reply(
@@ -228,6 +262,32 @@ app.post('/verify', async (req, res) => {
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
+  }
+});
+// Task 4 standalone check for the mint website: GET /check-telegram?username=@foo
+// Returns { member: true/false } when the username is known to the bot, or
+// { member: false, reason: 'not_linked' } when the user has never messaged
+// the bot (so their username cannot be resolved to a numeric id). In that
+// case the website tells the user to press Start on @EgentVerifybot once,
+// then retry the check.
+app.get('/check-telegram', async (req, res) => {
+  try {
+    const raw = String(req.query.username || '').trim();
+    const username = raw.replace(/^@/, '').toLowerCase();
+    if (!/^[a-z0-9_]{5,32}$/.test(username)) {
+      return res.json({ member: false, reason: 'invalid_username', username: raw });
+    }
+    const users = loadTgUsers();
+    const entry = users[username];
+    if (!entry || !entry.id) {
+      return res.json({ member: false, reason: 'not_linked', username });
+    }
+    const r = await checkJoinTelegram(bot, entry.id);
+    if (r.status === 'pass') return res.json({ member: true, username, status: r.detail });
+    if (r.status === 'fail') return res.json({ member: false, reason: 'not_member', username, status: r.detail });
+    return res.json({ member: false, reason: 'error', username, status: r.detail });
+  } catch (e) {
+    res.status(500).json({ member: false, reason: 'error', error: String(e.message || e) });
   }
 });
 
