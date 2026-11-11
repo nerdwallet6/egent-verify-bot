@@ -88,6 +88,20 @@ function recordTgUser(from) {
   saveTgUsers(users);
 }
 
+// --- Telegram username -> wallet binding store ---
+// One Telegram account may only be used for ONE mint. When a wallet
+// successfully verifies a username (member=true), that username is bound
+// to that wallet. A different wallet entering the same username later gets
+// reason 'username_used'. Same wallet re-checking is allowed.
+const TG_BINDINGS_FILE = path.join(DATA_DIR, 'tg-bindings.json');
+function loadTgBindings() {
+  try { return JSON.parse(fs.readFileSync(TG_BINDINGS_FILE, 'utf8')); } catch { return {}; }
+}
+function saveTgBindings(b) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(TG_BINDINGS_FILE, JSON.stringify(b, null, 2));
+}
+
 // Task 3: does the submitted post link exist and contain the required text?
 // Uses the free public oEmbed endpoint (no X API key needed).
 async function checkCreatePost(postLink, xUsername) {
@@ -271,16 +285,21 @@ app.post('/verify', async (req, res) => {
     res.status(500).json({ error: String(e.message || e) });
   }
 });
-// Task 4 standalone check for the mint website: GET /check-telegram?username=@foo
+// Task 4 standalone check for the mint website: GET /check-telegram?username=@foo&wallet=0x...
 // Returns { member: true/false } when the username is known to the bot, or
 // { member: false, reason: 'not_linked' } when the user has never messaged
 // the bot (so their username cannot be resolved to a numeric id). In that
 // case the website tells the user to press Start on @EgentVerifybot once,
 // then retry the check.
+// One Telegram account = one mint: when a wallet is passed and the username
+// is already bound to a DIFFERENT wallet, returns
+// { member: false, reason: 'username_used' }. On a successful member check
+// the username is bound to the calling wallet (same wallet re-checking is fine).
 app.get('/check-telegram', async (req, res) => {
   try {
     const raw = String(req.query.username || '').trim();
     const username = raw.replace(/^@/, '').toLowerCase();
+    const wallet = String(req.query.wallet || '').trim().toLowerCase();
     if (!/^[a-z0-9_]{5,32}$/.test(username)) {
       return res.json({ member: false, reason: 'invalid_username', username: raw });
     }
@@ -289,8 +308,21 @@ app.get('/check-telegram', async (req, res) => {
     if (!entry || !entry.id) {
       return res.json({ member: false, reason: 'not_linked', username });
     }
+    // One Telegram account = one mint: reject if bound to another wallet.
+    const bindings = loadTgBindings();
+    const bound = bindings[username];
+    if (bound && bound.wallet && wallet && bound.wallet.toLowerCase() !== wallet) {
+      return res.json({ member: false, reason: 'username_used', username });
+    }
     const r = await checkJoinTelegram(bot, entry.id);
-    if (r.status === 'pass') return res.json({ member: true, username, status: r.detail });
+    if (r.status === 'pass') {
+      // Bind this username to the calling wallet on first successful check.
+      if (wallet && /^0x[0-9a-f]{40}$/.test(wallet) && !bound) {
+        bindings[username] = { wallet, username, boundAt: new Date().toISOString() };
+        saveTgBindings(bindings);
+      }
+      return res.json({ member: true, username, status: r.detail });
+    }
     if (r.status === 'fail') return res.json({ member: false, reason: 'not_member', username, status: r.detail });
     return res.json({ member: false, reason: 'error', username, status: r.detail });
   } catch (e) {
