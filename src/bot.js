@@ -164,13 +164,10 @@ bot.use(async (ctx, next) => {
 
 bot.command('start', async (ctx) => {
   await ctx.reply(
-    '👋 Welcome to EGENT Packs verification!\n\n' +
-    'I check your free-mint tasks:\n' +
-    '1️⃣ Follow @ET_EGENT on X — auto-complete when you click the profile link\n' +
-    '2️⃣ Like & Repost the pinned post — auto-complete when you click the post link\n' +
-    '3️⃣ Create a post on X with the required text — checked automatically\n' +
-    '4️⃣ Join t.me/ET_EGENT — checked automatically\n\n' +
-    'Send /verify to start. I will ask for your wallet address, your X username, and your X post link.'
+    '👋 Hi! You are now registered. ✅\n\n' +
+    'To finish Task 4 (Join Telegram), go back to the mint website and click "Check" again:\n' +
+    '👉 https://eternalegent.netlify.app/\n\n' +
+    'Make sure you have already joined @ET_EGENT first — then the check will pass and Task 4 will be marked complete on the website.'
   );
 });
 
